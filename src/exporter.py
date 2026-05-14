@@ -321,6 +321,33 @@ def _issue_lines_from_subsection(sub: SubSection) -> list[str]:
     return lines
 
 
+def _issue_context_item_text(item: Item) -> str:
+    if isinstance(item, (TaskItem, ListItem)):
+        return item.text.strip()
+    if isinstance(item, KeyValueItem):
+        return item.key.strip()
+    return ""
+
+
+def _append_issue_items_by_context(
+    groups: dict[tuple[str, str], list[str]],
+    items: list[Item],
+    base_div: str,
+    base_time: str,
+) -> None:
+    cur_div = base_div
+    cur_time = base_time
+    for item in items:
+        text = _issue_context_item_text(item)
+        next_div = _issue_division(text)
+        next_time = _issue_timing(text)
+        if next_div is not None or next_time is not None:
+            cur_div = next_div or cur_div
+            cur_time = next_time or cur_time
+            continue
+        groups[(cur_div, cur_time)].extend(_items_to_lines([item]))
+
+
 def _split_issue_cells(sections: list[Section]) -> dict[tuple[str, str], str]:
     groups: dict[tuple[str, str], list[str]] = {
         ("dev", "current"): [],
@@ -333,9 +360,8 @@ def _split_issue_cells(sections: list[Section]) -> dict[tuple[str, str], str]:
         if "특이사항" not in sec.title and "이슈" not in sec.title:
             continue
 
-        direct_lines = _items_to_lines(sec.items)
-        if direct_lines:
-            groups[("dev", "current")].extend(direct_lines)
+        if sec.items:
+            _append_issue_items_by_context(groups, sec.items, "dev", "current")
 
         for sub3 in sec.subsections:
             div3 = _issue_division(sub3.title)
@@ -348,7 +374,7 @@ def _split_issue_cells(sections: list[Section]) -> dict[tuple[str, str], str]:
             base_div = div3 or "dev"
             base_time = time3 or "current"
             if sub3.items:
-                groups[(base_div, base_time)].extend(_issue_lines_from_subsection(sub3))
+                _append_issue_items_by_context(groups, sub3.items, base_div, base_time)
 
             for sub4 in sub3.subsections:
                 div4 = _issue_division(sub4.title) or base_div

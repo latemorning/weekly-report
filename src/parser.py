@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date, datetime, timedelta
 import re
 from dataclasses import dataclass, field
 from typing import Union
@@ -9,6 +10,17 @@ CHECKBOX_STATUS: dict[str, str] = {
     " ": "미완",
     "-": "취소",
     "/": "처리",
+}
+
+TABLE_STATUS: dict[str, str] = {
+    "[x]": "완료",
+    "[ ]": "미완",
+    "[/]": "처리",
+    "[-]": "취소",
+    "[>]": "미완",
+    "[<]": "미완",
+    "[!]": "미완",
+    "[?]": "미완",
 }
 
 CHECKBOX_ICON: dict[str, str] = {
@@ -132,7 +144,7 @@ def _parse_kv(line: str) -> KeyValueItem | None:
     return None
 
 
-def parse_document(text: str) -> tuple[str, list[Section]]:
+def _parse_markdown_sections(text: str) -> tuple[str, list[Section]]:
     lines = text.splitlines()
     doc_title = ""
     sections: list[Section] = []
@@ -188,6 +200,209 @@ def parse_document(text: str) -> tuple[str, list[Section]]:
             target.items.append(item)
 
     return doc_title, sections
+
+
+def _parse_frontmatter(text: str) -> tuple[dict[str, str], list[str]]:
+    lines = text.splitlines()
+    meta: dict[str, str] = {}
+    if not lines or lines[0].strip() != "---":
+        return meta, lines
+
+    for idx, line in enumerate(lines[1:], start=1):
+        if line.strip() == "---":
+            return meta, lines[idx + 1:]
+        if ":" in line:
+            key, value = line.split(":", 1)
+            meta[key.strip()] = value.strip()
+
+    return meta, lines
+
+
+def _is_work_management_document(text: str) -> bool:
+    return (
+        "# 업무 관리" in text
+        and "| 순번" in text
+        and "| 시작일" in text
+        and "| 업무내용" in text
+    )
+
+
+def _split_table_row(line: str) -> list[str]:
+    return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+
+def _is_table_separator(cells: list[str]) -> bool:
+    return bool(cells) and all(re.fullmatch(r":?-{3,}:?", cell.strip()) for cell in cells)
+
+
+def _parse_task_table(lines: list[str]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    headers: list[str] = []
+    in_task_table = False
+
+    for line in lines:
+        if not line.lstrip().startswith("|"):
+            if in_task_table:
+                break
+            continue
+
+        cells = _split_table_row(line)
+        if not in_task_table:
+            if {"시작일", "종료일", "상태", "업무내용"}.issubset(set(cells)):
+                headers = cells
+                in_task_table = True
+            continue
+
+        if _is_table_separator(cells):
+            continue
+
+        row = {header: cells[idx] if idx < len(cells) else "" for idx, header in enumerate(headers)}
+        if row.get("업무내용", "").strip():
+            rows.append(row)
+
+    return rows
+
+
+def _parse_period(period: str) -> tuple[date | None, date | None]:
+    m = re.search(
+        r"(\d{4})-(\d{1,2})-(\d{1,2})\s*~\s*(\d{4})-(\d{1,2})-(\d{1,2})",
+        period,
+    )
+    if not m:
+        return None, None
+    start = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    end = date(int(m.group(4)), int(m.group(5)), int(m.group(6)))
+    return start, end
+
+
+def _parse_table_date(value: str, year: int) -> date | None:
+    m = re.search(r"(\d{1,2})[-/](\d{1,2})", value)
+    if not m:
+        return None
+    return date(year, int(m.group(1)), int(m.group(2)))
+
+
+def _parse_hours(value: str) -> tuple[float | None, float | None]:
+    m = re.search(r"([-\d.]+)\s*/\s*([-\d.]+)", value)
+    if not m:
+        return None, None
+
+    def _to_float(raw: str) -> float | None:
+        return None if raw == "-" else float(raw)
+
+    return _to_float(m.group(1)), _to_float(m.group(2))
+
+
+def _table_row_to_task(row: dict[str, str]) -> TaskItem:
+    tags = re.findall(r"#(\w+)", row.get("태그", ""))
+    hours_est, hours_act = _parse_hours(row.get("예상/실제", ""))
+    assignees = [
+        assignee.strip()
+        for assignee in re.split(r"[,/]", row.get("작업자", ""))
+        if assignee.strip()
+    ]
+    return TaskItem(
+        status=TABLE_STATUS.get(row.get("상태", "").strip(), "미완"),
+        text=row.get("업무내용", "").strip(),
+        hours_est=hours_est,
+        hours_act=hours_act,
+        assignees=assignees,
+        tags=tags,
+    )
+
+
+def _task_to_list_item(task: TaskItem) -> ListItem:
+    return ListItem(
+        text=task.text,
+        assignees=list(task.assignees),
+        tags=list(task.tags),
+    )
+
+
+def _copy_task(task: TaskItem) -> TaskItem:
+    return TaskItem(
+        status=task.status,
+        text=task.text,
+        hours_est=task.hours_est,
+        hours_act=task.hours_act,
+        assignees=list(task.assignees),
+        tags=list(task.tags),
+    )
+
+
+def _date_range(start: date, end: date) -> list[date]:
+    days: list[date] = []
+    cur = start
+    while cur <= end:
+        days.append(cur)
+        cur += timedelta(days=1)
+    return days
+
+
+def _build_work_management_sections(
+    rows: list[dict[str, str]],
+    period_start: date | None,
+    period_end: date | None,
+) -> list[Section]:
+    year = period_start.year if period_start else datetime.today().year
+    tasks = [(_table_row_to_task(row), row) for row in rows]
+
+    goals = Section(title="📌 이번 주 목표")
+    goals.items = [_copy_task(task) for task, _row in tasks]
+
+    daily = Section(title="📋 업무 수행 내역")
+    if period_start and period_end:
+        weekdays = ["월", "화", "수", "목", "금", "토", "일"]
+        for day in _date_range(period_start, period_end):
+            sub = SubSection(
+                title=f"{weekdays[day.weekday()]} ({day.strftime('%m/%d')})",
+                level=3,
+            )
+            for task, row in tasks:
+                task_start = _parse_table_date(row.get("시작일", ""), year)
+                task_end = _parse_table_date(row.get("종료일", ""), year) or task_start
+                if task_start and task_end and task_start <= day <= task_end:
+                    sub.items.append(_copy_task(task))
+            daily.subsections.append(sub)
+
+    completed = Section(title="✅ 완료 업무")
+    in_progress = Section(title="🔄 진행 중 업무")
+    for task, _row in tasks:
+        if task.status == "완료":
+            completed.items.append(_task_to_list_item(task))
+        else:
+            in_progress.items.append(_task_to_list_item(task))
+
+    return [goals, daily, completed, in_progress]
+
+
+def _parse_work_management_document(text: str) -> tuple[str, list[Section]]:
+    meta, lines = _parse_frontmatter(text)
+    week = meta.get("주차", "").strip()
+    if week:
+        doc_title = week if "주간 보고" in week else f"{week} 주간 보고"
+    else:
+        doc_title = "주간 보고"
+    period_start, period_end = _parse_period(meta.get("기간", ""))
+
+    generated_sections = _build_work_management_sections(
+        _parse_task_table(lines),
+        period_start,
+        period_end,
+    )
+    _ignored_title, existing_sections = _parse_markdown_sections(text)
+    passthrough_sections = [
+        section
+        for section in existing_sections
+        if "대기/조건부 작업" not in section.title
+    ]
+    return doc_title, [*generated_sections, *passthrough_sections]
+
+
+def parse_document(text: str) -> tuple[str, list[Section]]:
+    if _is_work_management_document(text):
+        return _parse_work_management_document(text)
+    return _parse_markdown_sections(text)
 
 
 def extract_date_range(sections: list[Section]) -> tuple[str, str]:

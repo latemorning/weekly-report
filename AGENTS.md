@@ -15,6 +15,7 @@
 
 - `uv sync`: `pyproject.toml` 및 `uv.lock`의 의존성을 설치합니다.
 - `uv run python convert.py samples/sample.md`: 샘플 보고서를 변환하고 기본 날짜 기반 출력 경로에 저장합니다.
+- `uv run python convert.py /path/to/week-folder`: 주간 폴더 안의 `업무관리.md`를 변환하고 기본 날짜 기반 출력 경로에 저장합니다.
 - `uv run python convert.py samples/sample.md output/report.xlsx`: 샘플 보고서를 명시한 출력 파일로 변환합니다.
 - `uv run python main.py`: placeholder 진입점을 실행합니다. 현재는 인사말만 출력합니다.
 
@@ -30,6 +31,7 @@ Python 3.9+ 문법과 네 칸 들여쓰기를 사용하세요. `src/parser.py`�
 
 ```bash
 uv run python convert.py samples/sample.md output/report.xlsx
+uv run python convert.py samples/업무관리.md output/report.xlsx
 ```
 
 테스트를 추가할 때는 `tests/` 아래에 두고 파일명은 `test_*.py`로 지정하세요. exporter 동작은 focused parser test와 workbook assertion을 우선 사용하세요. `uv run pytest`에 의존하기 전에 프로젝트에 `pytest`를 추가하세요.

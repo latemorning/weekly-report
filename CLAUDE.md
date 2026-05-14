@@ -10,12 +10,17 @@ Obsidian 스타일 주간보고 마크다운 파일을 Excel(XLSX) 파일로 변
 ## 실행
 
 ```bash
-# 단일 파일 변환 (출력 파일명 자동: input.md → input.xlsx)
+# 주간 폴더 변환 (`업무관리.md` 자동 선택)
+uv run python convert.py /path/to/week-folder
+
+# 단일 파일 변환
 uv run python convert.py samples/sample.md
 
 # 출력 경로 지정
-uv run python convert.py weekly.md output/report.xlsx
+uv run python convert.py weekly-folder/업무관리.md output/report.xlsx
 ```
+
+입력으로 `00.md`를 넘겨도 같은 폴더에 `업무관리.md`가 있으면 `업무관리.md`를 우선 사용한다.
 
 ## 아키텍처
 
@@ -28,6 +33,7 @@ src/exporter.py     데이터모델 → XLSX 생성
 ### 파서 (`src/parser.py`)
 
 - `parse_document(text)` → `(doc_title, sections)`
+- `업무관리.md`는 frontmatter(`주차`, `기간`)와 업무 테이블을 주간보고 섹션 모델로 변환한다.
 - 체크박스: `[x]`=완료, `[ ]`=미완, `[-]`=취소, `[/]`=처리
 - `⏱ Xh/Xh (담당자)` 형식에서 시간/담당자 자동 추출
 - 담당자 추출은 **`⏱` 있는 항목** 또는 **줄 끝 짧은 한국어 이름 `(2~4자)` 패턴**에만 적용 (긴 설명문 오파싱 방지)
