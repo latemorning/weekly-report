@@ -67,7 +67,9 @@ def main(input_md: Path, output_xlsx: Path | None) -> None:
 
     sheets = export_to_xlsx(doc_title, sections, output_xlsx)
 
-    click.echo(f"✓ {output_xlsx}")
+    output_location = output_xlsx.resolve()
+    click.echo("✓ 변환 완료")
+    click.echo(f"  · 생성 위치: {output_location}")
     if source_md != input_md:
         click.echo(f"  · 입력: {source_md}")
     for name in sheets:

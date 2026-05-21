@@ -6,3 +6,12 @@ Obsidian에 등록한 주간 업무 내용을 보고서용 Excel 파일로 변�
 uv run python convert.py /path/to/week-folder
 uv run python convert.py /path/to/week-folder/업무관리.md output/report.xlsx
 ```
+
+변환이 끝나면 생성된 XLSX의 절대 경로가 출력됩니다.
+
+```text
+✓ 변환 완료
+  · 생성 위치: /path/to/output/report.xlsx
+```
+
+검토 후 메일 발송 스크립트가 추가되면 이 경로를 첨부 파일 파라미터로 넘기면 됩니다.
